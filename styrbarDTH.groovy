@@ -23,7 +23,7 @@ import groovy.json.JsonOutput
 import physicalgraph.zigbee.zcl.DataType
 
 metadata {
-  definition(name: "IKEA Styrbar remote", namespace: "smartthings", author: "André Parent", ocfDeviceType: "x.com.st.d.remotecontroller", mcdSync: true, runLocally: false, executeCommandsLocally: false, mnmn: "SmartThings", vid: "generic-4-button") {
+  definition(name: "IKEA Styrbar remote", namespace: "scubaandre", author: "André Parent", ocfDeviceType: "x.com.st.d.remotecontroller", mcdSync: true, runLocally: false, executeCommandsLocally: false, mnmn: "SmartThings", vid: "generic-4-button") {
     capability "Actuator"
     capability "Battery"
     capability "Button"
@@ -215,11 +215,9 @@ private Map getButtonEvent(Map descMap) {
   // Button Hold
   else if (descMap.clusterInt == 0X0008 && (descMap.commandInt == 0x05 || descMap.commandInt == 0x01)) {
     if (descMap.data[0] == "00") {
-      log.debug "button 1/up held"
       buttonNumber = 1
       buttonState = "held"
     } else if (descMap.data[0] == "01") {
-      log.debug "button 2/down held"
       buttonNumber = 2
       buttonState = "held"
     }
@@ -229,6 +227,7 @@ private Map getButtonEvent(Map descMap) {
   if (buttonNumber != 0) {
     // Create and send component event
     sendButtonEvent(buttonNumber, buttonState)
+    log.debug "Button ${buttonNumber} ${buttonState}"
   }
   result
 }
