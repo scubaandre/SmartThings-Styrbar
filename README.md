@@ -16,6 +16,8 @@ It's probably going to stop working for me at the same time as you.
 # Install instructions
 
 Not going to write any as this is a relatively simple device handler, this will get you on your way.
+https://community.smartthings.com/t/faq-an-overview-of-using-custom-code-in-smartthings-smartthings-classic/16772
+
 
 
 
