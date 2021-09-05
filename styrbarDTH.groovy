@@ -16,6 +16,8 @@
 
 // Modification from template to enable IKEA Styrbar 4 buttons remote
 // 2021-08-28 		0.01  minimum functionnlity release. Up/down push and hold, left/right push only
+// 2021-08-30 		0.02  some house keeping and logging changes
+// 2021-09-05 		0.03  apparently not working as it should, some additionnal logging updates
 //
 //
 
@@ -64,22 +66,58 @@ private getButtonName(buttonNum) {
   return "${device.displayName} " + "Button ${buttonNum}"
 }
 
-private void createChildButtonDevices(numberOfButtons) {
-  state.oldLabel = device.label
+def updated() {
+  log.debug "updated() called"
+  if (childDevices && device.label != state.oldLabel) {
+    childDevices.each {
+      def newLabel = getButtonName(channelNumber(it.deviceNetworkId))
+      it.setLabel(newLabel)
+    }
+    state.oldLabel = device.label
+  }
+}
 
+def configure() {
+  log.debug "configure() called"
+  log.debug "Configuring device ${device.getDataValue("model ")}"
+
+  def cmds = zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, 0x21, DataType.UINT8, 30, 21600, 0x01) +
+    zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, 0x21) +
+    zigbee.addBinding(zigbee.ONOFF_CLUSTER) //+
+
+  cmds
+}
+
+def installed() {
+  log.debug "installed() called"
+  // forcing 4 buttons 
+  def numberOfButtons = 4
+  createChildButtonDevices(numberOfButtons)
+  sendEvent(name: "supportedButtonValues", value: ["pushed", "held"].encodeAsJSON(), displayed: false)
+  sendEvent(name: "numberOfButtons", value: numberOfButtons, displayed: false)
+  numberOfButtons.times {
+    sendEvent(name: "button", value: "pushed", data: [buttonNumber: it + 1], displayed: false)
+  }
+
+  // These devices don't report regularly so they should only go OFFLINE when Hub is OFFLINE
+  sendEvent(name: "DeviceWatch-Enroll", value: JsonOutput.toJson([protocol: "zigbee", scheme: "untracked"]), displayed: false)
+  sendEvent(name: "lastButtonState", value: "released", displayed: false)
+}
+
+private void createChildButtonDevices(numberOfButtons) {
+  log.debug "createChildButtonDevices() called"
+  state.oldLabel = device.label
   def existingChildren = getChildDevices()
 
   log.debug "Creating ${numberOfButtons} children"
 
   for (i in 1..numberOfButtons) {
     def newChildNetworkId = "${device.deviceNetworkId}:${i}"
-    def childExists = (existingChildren.find {
-      child -> child.getDeviceNetworkId() == newChildNetworkId
-    } != NULL)
+    def childExists = (existingChildren.find {child -> child.getDeviceNetworkId() == newChildNetworkId} != NULL)
 
     if (!childExists) {
       log.debug "Creating child $i"
-      def child = addChildDevice("Child Button", newChildNetworkId, device.hubId,
+      def child = addChildDevice("smartthings", "Child Button", newChildNetworkId, device.hubId,
         [completedSetup: true, label: getButtonName(i),
           isComponent: true, componentName: "button$i", componentLabel: "Button ${i}"
         ])
@@ -97,47 +135,11 @@ private void createChildButtonDevices(numberOfButtons) {
   }
 }
 
-def installed() {
-  def numberOfButtons = 4
-  state.ignoreNextButton3 = false
-
-  createChildButtonDevices(numberOfButtons)
-
-  sendEvent(name: "supportedButtonValues", value: ["pushed"].encodeAsJSON(), displayed: false)
-  sendEvent(name: "numberOfButtons", value: numberOfButtons, displayed: false)
-  numberOfButtons.times {
-    sendEvent(name: "button", value: "pushed", data: [buttonNumber: it + 1], displayed: false)
-  }
-
-  // These devices don't report regularly so they should only go OFFLINE when Hub is OFFLINE
-  sendEvent(name: "DeviceWatch-Enroll", value: JsonOutput.toJson([protocol: "zigbee", scheme: "untracked"]), displayed: false)
-}
-
-def updated() {
-  if (childDevices && device.label != state.oldLabel) {
-    childDevices.each {
-      def newLabel = getButtonName(channelNumber(it.deviceNetworkId))
-      it.setLabel(newLabel)
-    }
-    state.oldLabel = device.label
-  }
-}
-
-def configure() {
-  log.debug "Configuring device ${device.getDataValue("model ")}"
-
-  def cmds = zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, 0x21, DataType.UINT8, 30, 21600, 0x01) +
-    zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, 0x21) +
-    zigbee.addBinding(zigbee.ONOFF_CLUSTER) //+
-  // This device doesn't report a binding to this group but will send all messages to this group ID
-  //addHubToGroup(0x4003)
-
-  cmds
-}
 
 def parse(String description) {
-  log.debug "Parsing message from device: '$description'"
-  def event = zigbee.getEvent(description)
+  log.debug "${device.displayName} parsing: $description"
+  def event = zigbee.getEvent(description) 
+  
   if (event) {
     log.debug "Creating event: ${event}"
     sendEvent(event)
@@ -172,14 +174,11 @@ private Map getBatteryEvent(value) {
 }
 
 private sendButtonEvent(buttonNumber, buttonState) {
-  def child = childDevices?.find {
-    channelNumber(it.deviceNetworkId) == buttonNumber
-  }
+  def child = childDevices?.find {channelNumber(it.deviceNetworkId) == buttonNumber}
 
   if (child) {
     def descriptionText = "$child.displayName was $buttonState" // TODO: Verify if this is needed, and if capability template already has it handled
-
-    child?.sendEvent([name: "button", value: buttonState, data: [buttonNumber: 1], descriptionText: descriptionText, isStateChange: true])
+	child?.sendEvent([name: "button", value: buttonState, data: [buttonNumber: 1], descriptionText: descriptionText, isStateChange: true])
   } else {
     log.debug "Child device $buttonNumber not found!"
   }
@@ -223,11 +222,16 @@ private Map getButtonEvent(Map descMap) {
     }
 
   }
+    // Button release
+  else if (descMap.clusterInt == 0X0008 && (descMap.commandInt == 0x07)) {
+    log.info "Button released"
+    
+  }
 
   if (buttonNumber != 0) {
     // Create and send component event
     sendButtonEvent(buttonNumber, buttonState)
-    log.debug "Button ${buttonNumber} ${buttonState}"
+    log.info "Button ${buttonNumber} ${buttonState}"
   }
   result
 }
